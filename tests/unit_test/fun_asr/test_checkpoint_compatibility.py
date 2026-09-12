@@ -227,8 +227,8 @@ def test_feature_extractor_reads_layout_and_lfr_fields(tmp_path, flat):
     extractor = FunAsrNanoFeatureExtractor.from_pretrained(
         tmp_path, local_files_only=True
     )
-    assert extractor.lfr_m == 3
-    assert extractor.lfr_n == 2
+    assert extractor.num_frames_lfr == 3
+    assert extractor.stride_lfr == 2
     assert extractor.checkpoint_layout == ("flat" if flat else "split")
 
 
