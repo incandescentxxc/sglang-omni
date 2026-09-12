@@ -32,12 +32,11 @@ def canonical_weight_name(
     _validate_layout_matches_key_style(name, layout)
     if layout == "split":
         name = _split_to_flat_layer_names(name, num_blocks=num_blocks, tp_blocks=tp_blocks)
+        name = _rename_split_submodules(name)
     # Both split export variants call this "out_proj"; current HF flat
     # checkpoints call it "o_proj". Rename unconditionally so it matches
     # sglang's local module either way.
     name = name.replace(".self_attn.o_proj.", ".self_attn.out_proj.")
-    if layout == "split":
-        name = _rename_split_submodules(name)
     return name
 
 

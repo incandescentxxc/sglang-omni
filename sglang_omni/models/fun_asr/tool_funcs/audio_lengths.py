@@ -14,11 +14,7 @@ def fun_asr_low_frame_rate_length(lfr_frames: int) -> int:
 
 
 def fun_asr_audio_token_length(lfr_frames: int, *, checkpoint_layout: str) -> int:
-    """Number of audio placeholders and embeddings for a checkpoint layout.
-
-    The native HF processor uses one placeholder for each valid LFR frame in
-    the flat layout. See transformers/models/fun_asr_nano/processing_fun_asr_nano.py.
-    """
+    """Number of audio placeholders and embeddings for a checkpoint layout."""
     if checkpoint_layout == "flat":
         return lfr_frames
     if checkpoint_layout == "split":
