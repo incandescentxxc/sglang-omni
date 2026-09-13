@@ -14,9 +14,6 @@ from sglang_omni.models.fun_asr.encoder_service import (
     FunASRPreLMEncoderService,
     build_cache_namespace,
 )
-from sglang_omni.models.fun_asr.tool_funcs.audio_lengths import (
-    fun_asr_audio_token_length,
-)
 from sglang_omni.scheduling.engine_factory import AsrEngineBuilder
 from sglang_omni.scheduling.generation_batch_policy import (
     CudaGraphBackend,
@@ -98,14 +95,7 @@ class FunASREngineBuilder(AsrEngineBuilder):
         self.feature_extractor = AutoFeatureExtractor.from_pretrained(
             checkpoint_dir, trust_remote_code=True
         )
-        encoder_token_count = int(
-            fun_asr_audio_token_length(
-                self.feature_extractor.nb_max_frames,
-                checkpoint_layout=getattr(
-                    self.feature_extractor, "checkpoint_layout", "split"
-                ),
-            )
-        )
+        encoder_token_count = int(self.feature_extractor.nb_max_frames)
         prompt_overhead = request_builders.fun_asr_prompt_overhead_tokens(
             self.tokenizer
         )

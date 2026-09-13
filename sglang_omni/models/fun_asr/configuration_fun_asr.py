@@ -20,9 +20,6 @@ from transformers.feature_extraction_sequence_utils import SequenceFeatureExtrac
 
 from sglang_omni.utils.audio_features import cached_fbank
 
-from .checkpoint import checkpoint_layout
-from .tool_funcs.audio_lengths import fun_asr_audio_token_length
-
 AUDIO_PLACEHOLDER_TOKEN = "<|object_ref_start|>"
 
 
@@ -37,15 +34,6 @@ class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
     """
 
     model_input_names = ["input_features"]
-
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
-        extractor = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
-        config = FunAsrNanoConfig.from_pretrained(
-            pretrained_model_name_or_path, **kwargs
-        )
-        extractor.checkpoint_layout = config.checkpoint_layout
-        return extractor
 
     def __init__(
         self,
@@ -258,12 +246,7 @@ class FunAsrNanoProcessor:
 
     def _get_feat_extract_output_lengths(self, input_lengths):
         """LFR frames -> audio placeholders and adaptor embeddings."""
-        return fun_asr_audio_token_length(
-            input_lengths,
-            checkpoint_layout=getattr(
-                self.feature_extractor, "checkpoint_layout", "split"
-            ),
-        )
+        return input_lengths
 
     def __call__(self, text=None, audio=None, audio_kwargs=None, **kwargs):
         inputs: dict[str, Any] = {}
@@ -333,32 +316,39 @@ class FunAsrNanoEncoderConfig(PretrainedConfig):
         self,
         num_mel_bins: int = 80,
         num_stacked_frames: int = 7,
-        d_model: int = 512,
-        encoder_attention_heads: int = 4,
-        encoder_ffn_dim: int = 2048,
-        encoder_layers: int = 50,
-        num_timestamp_prediction_blocks: int = 20,
-        kernel_size: int = 11,
-        dropout: float = 0.1,
+        hidden_size: int = 512,
+        num_attention_heads: int = 4,
+        intermediate_size: int = 2048,
+        num_hidden_layers: int = 70,
+        num_timestamp_prediction_layers: int = 20,
+        fsmn_kernel_size: int = 11,
+        hidden_dropout: float = 0.1,
         attention_dropout: float = 0.1,
         activation_dropout: float = 0.1,
-        activation_function: str = "relu",
+        hidden_act: str = "relu",
         layer_norm_eps: float = 1e-5,
         **kwargs,
     ):
+        if "num_timestamp_prediction_blocks" in kwargs or "encoder_layers" in kwargs:
+            raise ValueError(
+                "Fun-ASR supports only the current flat HF checkpoint; "
+                "download the latest FunAudioLLM/Fun-ASR-Nano-2512-hf revision."
+            )
+        if not 0 <= num_timestamp_prediction_layers < num_hidden_layers:
+            raise ValueError("Invalid Fun-ASR transcription/timestamp layer counts")
         super().__init__(**kwargs)
         self.num_mel_bins = num_mel_bins
         self.num_stacked_frames = num_stacked_frames
-        self.d_model = d_model
-        self.encoder_attention_heads = encoder_attention_heads
-        self.encoder_ffn_dim = encoder_ffn_dim
-        self.encoder_layers = encoder_layers
-        self.num_timestamp_prediction_blocks = num_timestamp_prediction_blocks
-        self.kernel_size = kernel_size
-        self.dropout = dropout
+        self.hidden_size = hidden_size
+        self.num_attention_heads = num_attention_heads
+        self.intermediate_size = intermediate_size
+        self.num_hidden_layers = num_hidden_layers
+        self.num_timestamp_prediction_layers = num_timestamp_prediction_layers
+        self.fsmn_kernel_size = fsmn_kernel_size
+        self.hidden_dropout = hidden_dropout
         self.attention_dropout = attention_dropout
         self.activation_dropout = activation_dropout
-        self.activation_function = activation_function
+        self.hidden_act = hidden_act
         self.layer_norm_eps = layer_norm_eps
 
     @property
@@ -366,38 +356,36 @@ class FunAsrNanoEncoderConfig(PretrainedConfig):
         return self.num_mel_bins * self.num_stacked_frames
 
 
-def _as_config_dict(config: Any) -> dict[str, Any]:
-    return config.to_dict() if hasattr(config, "to_dict") else dict(config)
+class FunAsrNanoAdaptorConfig(PretrainedConfig):
+    """Bidirectional adaptor and projection configuration in HF field names."""
 
+    model_type = "fun_asr_nano_adaptor"
 
-def _normalize_audio_config(audio_config: Any) -> tuple[str, dict[str, Any]]:
-    """Convert either HF audio schema to the encoder schema used locally."""
-    audio = _as_config_dict(audio_config)
-    layout = checkpoint_layout(audio)
-    if layout == "flat":
-        total_blocks = audio["num_hidden_layers"]
-        timestamp_blocks = audio["num_timestamp_prediction_layers"]
-        transcription_blocks = total_blocks - timestamp_blocks
-    else:
-        transcription_blocks = audio["num_hidden_layers"]
-        timestamp_blocks = audio["num_timestamp_prediction_blocks"]
-    if transcription_blocks < 1 or timestamp_blocks < 0:
-        raise ValueError("Invalid Fun-ASR transcription/timestamp layer counts")
-    return layout, {
-        "num_mel_bins": audio.get("num_mel_bins", 80),
-        "num_stacked_frames": audio.get("num_stacked_frames", 7),
-        "d_model": audio.get("hidden_size", 512),
-        "encoder_attention_heads": audio.get("num_attention_heads", 4),
-        "encoder_ffn_dim": audio.get("intermediate_size", 2048),
-        "encoder_layers": transcription_blocks,
-        "num_timestamp_prediction_blocks": timestamp_blocks,
-        "kernel_size": audio.get("fsmn_kernel_size", 11),
-        "dropout": audio.get("hidden_dropout", 0.1),
-        "attention_dropout": audio.get("attention_dropout", 0.1),
-        "activation_dropout": audio.get("activation_dropout", 0.1),
-        "activation_function": audio.get("hidden_act", "relu"),
-        "layer_norm_eps": audio.get("layer_norm_eps", 1e-5),
-    }
+    def __init__(
+        self,
+        hidden_size: int = 1024,
+        intermediate_size: int = 256,
+        num_hidden_layers: int = 2,
+        num_attention_heads: int = 8,
+        projector_hidden_size: int = 2048,
+        projector_hidden_act: str = "relu",
+        hidden_act: str = "relu",
+        hidden_dropout: float = 0.0,
+        attention_dropout: float = 0.0,
+        layer_norm_eps: float = 1e-5,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.hidden_size = hidden_size
+        self.intermediate_size = intermediate_size
+        self.num_hidden_layers = num_hidden_layers
+        self.num_attention_heads = num_attention_heads
+        self.projector_hidden_size = projector_hidden_size
+        self.projector_hidden_act = projector_hidden_act
+        self.hidden_act = hidden_act
+        self.hidden_dropout = hidden_dropout
+        self.attention_dropout = attention_dropout
+        self.layer_norm_eps = layer_norm_eps
 
 
 @register_customized_processor(FunAsrNanoProcessor)
@@ -406,62 +394,35 @@ class FunAsrNanoConfig(PretrainedConfig):
 
     model_type = "fun_asr_nano"
     sub_configs: ClassVar[dict[str, Any]] = {
-        "encoder_config": FunAsrNanoEncoderConfig,
+        "audio_config": FunAsrNanoEncoderConfig,
+        "adaptor_config": FunAsrNanoAdaptorConfig,
     }
 
     def __init__(
         self,
-        encoder_config=None,
         audio_config=None,
         adaptor_config=None,
         text_config=None,
         audio_token_id: int = 151646,
-        adaptor_intermediate_size: int = 2048,
-        adaptor_num_hidden_layers: int = 2,
-        adaptor_num_attention_heads: int = 8,
-        activation_function: str = "relu",
         initializer_range: float = 0.02,
         tie_word_embeddings: bool = True,
         **kwargs,
     ):
-        saved_layout = kwargs.pop("checkpoint_layout", None)
-        if audio_config is not None:
-            if encoder_config is not None:
-                raise ValueError(
-                    "Fun-ASR config must specify only audio_config or encoder_config"
-                )
-            layout, encoder_config = _normalize_audio_config(audio_config)
-        else:
-            layout = saved_layout or "split"
-        if saved_layout is not None and saved_layout != layout:
+        if "encoder_config" in kwargs or "checkpoint_layout" in kwargs:
             raise ValueError(
-                "Fun-ASR saved checkpoint layout disagrees with audio_config"
+                "Fun-ASR supports only the current flat HF checkpoint; "
+                "download the latest FunAudioLLM/Fun-ASR-Nano-2512-hf revision."
             )
-        self.checkpoint_layout = layout
-        adaptor = _as_config_dict(adaptor_config or {})
-        adaptor_intermediate_size = adaptor.get(
-            "projector_hidden_size",
-            kwargs.pop("projector_hidden_size", adaptor_intermediate_size),
-        )
-        self.projector_hidden_act = adaptor.get(
-            "projector_hidden_act",
-            kwargs.pop("projector_hidden_act", activation_function),
-        )
-        adaptor_num_hidden_layers = adaptor.get(
-            "num_hidden_layers", adaptor_num_hidden_layers
-        )
-        adaptor_num_attention_heads = adaptor.get(
-            "num_attention_heads", adaptor_num_attention_heads
-        )
-        activation_function = adaptor.get("hidden_act", activation_function)
-        self.adaptor_layer_norm_eps = adaptor.get(
-            "layer_norm_eps", kwargs.pop("adaptor_layer_norm_eps", 1e-5)
-        )
-        if isinstance(encoder_config, dict):
-            encoder_config = FunAsrNanoEncoderConfig(**encoder_config)
-        elif encoder_config is None:
-            encoder_config = FunAsrNanoEncoderConfig()
-        self.encoder_config = encoder_config
+        if isinstance(audio_config, dict):
+            audio_config = FunAsrNanoEncoderConfig(**audio_config)
+        elif audio_config is None:
+            audio_config = FunAsrNanoEncoderConfig()
+        self.audio_config = audio_config
+        if isinstance(adaptor_config, dict):
+            adaptor_config = FunAsrNanoAdaptorConfig(**adaptor_config)
+        elif adaptor_config is None:
+            adaptor_config = FunAsrNanoAdaptorConfig()
+        self.adaptor_config = adaptor_config
 
         from transformers.models.qwen3.configuration_qwen3 import (
             Qwen3Config as HFQwen3Config,
@@ -470,22 +431,18 @@ class FunAsrNanoConfig(PretrainedConfig):
         if isinstance(text_config, dict):
             text_config = HFQwen3Config(**text_config)
         elif text_config is None:
-            text_config = HFQwen3Config()
+            text_config = HFQwen3Config(
+                hidden_size=1024,
+                intermediate_size=3072,
+                num_hidden_layers=28,
+                num_attention_heads=16,
+                num_key_value_heads=8,
+                head_dim=128,
+            )
         self.text_config = text_config
-        if (
-            adaptor.get("hidden_size", text_config.hidden_size)
-            != text_config.hidden_size
-        ):
+        if adaptor_config.hidden_size != text_config.hidden_size:
             raise ValueError("Fun-ASR adaptor hidden size must match text hidden size")
-        self.adaptor_ffn_dim = adaptor.get(
-            "intermediate_size",
-            kwargs.pop("adaptor_ffn_dim", text_config.hidden_size // 4),
-        )
         self.audio_token_id = audio_token_id
-        self.adaptor_intermediate_size = adaptor_intermediate_size
-        self.adaptor_num_hidden_layers = adaptor_num_hidden_layers
-        self.adaptor_num_attention_heads = adaptor_num_attention_heads
-        self.activation_function = activation_function
         self.initializer_range = initializer_range
 
         super().__init__(

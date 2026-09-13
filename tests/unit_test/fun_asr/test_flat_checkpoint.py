@@ -7,7 +7,6 @@ import pytest
 import torch
 from torch import nn
 
-from sglang_omni.models.fun_asr.checkpoint import canonical_weight_name
 from sglang_omni.models.fun_asr.configuration_fun_asr import FunAsrNanoConfig
 from sglang_omni.models.fun_asr.sglang_model import (
     FunAsrNanoAdaptor,
@@ -17,53 +16,33 @@ from sglang_omni.models.fun_asr.sglang_model import (
 
 
 @pytest.mark.parametrize(
-    "source,target",
+    "config",
     [
-        ("stem.input", "layers.0.input"),
-        ("layers.0.input", "layers.1.input"),
-        ("layers.48.input", "layers.49.input"),
-        ("timestamp_prediction_layers.0.input", "layers.50.input"),
-        ("timestamp_prediction_layers.19.input", "layers.69.input"),
-        ("layer_norm.weight", "layers.49.final_layernorm.weight"),
-        ("timestamp_prediction_layer_norm.bias", "layers.69.final_layernorm.bias"),
+        {"encoder_config": {}},
+        {
+            "audio_config": {
+                "num_hidden_layers": 50,
+                "num_timestamp_prediction_blocks": 20,
+            }
+        },
+        {"checkpoint_layout": "split"},
     ],
 )
-def test_split_boundaries(source, target):
-    assert (
-        canonical_weight_name(
-            "model.audio_tower." + source, layout="split", num_blocks=50, tp_blocks=20
-        )
-        == "model.audio_tower." + target
-    )
+def test_legacy_config_rejected(config):
+    with pytest.raises(ValueError, match="only the current flat HF checkpoint"):
+        FunAsrNanoConfig(**config)
 
 
-@pytest.mark.parametrize(
-    "layout,source",
-    [
-        ("flat", "stem.self_attn.q_proj.weight"),
-        ("split", "layers.0.input_layernorm.weight"),
-    ],
-)
-def test_mixed_layout_rejected(layout, source):
-    with pytest.raises(ValueError, match="disagrees"):
-        canonical_weight_name(
-            "model.audio_tower." + source, layout=layout, num_blocks=50, tp_blocks=20
-        )
-
-
-@pytest.mark.parametrize("flat", [False, True])
-def test_nested_config_counts_and_roundtrip(flat):
+def test_nested_config_counts_and_roundtrip():
     audio = dict(
         hidden_size=8,
         num_attention_heads=2,
         intermediate_size=16,
-        num_hidden_layers=3 if flat else 2,
+        num_hidden_layers=3,
+        num_timestamp_prediction_layers=1,
         num_mel_bins=2,
         num_stacked_frames=3,
     )
-    audio[
-        "num_timestamp_prediction_layers" if flat else "num_timestamp_prediction_blocks"
-    ] = 1
     config = FunAsrNanoConfig(
         audio_config=audio,
         adaptor_config=dict(
@@ -74,26 +53,89 @@ def test_nested_config_counts_and_roundtrip(flat):
         ),
         text_config=dict(hidden_size=8, num_attention_heads=2),
     )
-    assert config.encoder_config.encoder_layers == 2
-    assert config.encoder_config.num_timestamp_prediction_blocks == 1
-    assert config.encoder_config.input_size == 6
-    assert config.adaptor_ffn_dim == 5
-    assert config.adaptor_intermediate_size == 12
+    assert config.audio_config.num_hidden_layers == 3
+    assert config.audio_config.num_timestamp_prediction_layers == 1
+    assert config.audio_config.input_size == 6
+    assert config.adaptor_config.intermediate_size == 5
+    assert config.adaptor_config.projector_hidden_size == 12
     restored = FunAsrNanoConfig.from_dict(config.to_dict())
-    assert restored.checkpoint_layout == ("flat" if flat else "split")
-    assert restored.adaptor_ffn_dim == 5
+    assert restored.audio_config.to_dict() == config.audio_config.to_dict()
+    assert restored.adaptor_config.to_dict() == config.adaptor_config.to_dict()
+    assert "checkpoint_layout" not in restored.to_dict()
+    assert "encoder_config" not in restored.to_dict()
 
 
-def tiny_model(layout="flat"):
+@pytest.mark.parametrize("total,timestamp", [(0, 0), (2, -1), (2, 2), (2, 3)])
+def test_invalid_layer_counts_rejected(total, timestamp):
+    with pytest.raises(ValueError, match="layer counts"):
+        FunAsrNanoConfig(
+            audio_config={
+                "num_hidden_layers": total,
+                "num_timestamp_prediction_layers": timestamp,
+            }
+        )
+
+
+def test_adaptor_text_width_mismatch_rejected():
+    with pytest.raises(ValueError, match="hidden size must match"):
+        FunAsrNanoConfig(
+            adaptor_config={"hidden_size": 8}, text_config={"hidden_size": 16}
+        )
+
+
+def test_config_save_and_reload(tmp_path):
+    config = FunAsrNanoConfig()
+    config.save_pretrained(tmp_path)
+    restored = FunAsrNanoConfig.from_pretrained(tmp_path, local_files_only=True)
+    assert restored.audio_config.num_hidden_layers == 70
+    assert restored.audio_config.num_timestamp_prediction_layers == 20
+    assert restored.adaptor_config.hidden_size == restored.text_config.hidden_size
+
+
+def test_model_builds_flat_layers_from_nested_config(monkeypatch):
+    import sglang_omni.models.fun_asr.sglang_model as model_module
+
+    monkeypatch.setattr(
+        model_module, "Qwen3ForCausalLM", lambda *args, **kwargs: nn.Identity()
+    )
+    config = FunAsrNanoConfig(
+        audio_config={
+            "num_mel_bins": 2,
+            "num_stacked_frames": 3,
+            "hidden_size": 8,
+            "intermediate_size": 16,
+            "num_attention_heads": 2,
+            "num_hidden_layers": 3,
+            "num_timestamp_prediction_layers": 1,
+            "layer_norm_eps": 1e-4,
+        },
+        adaptor_config={
+            "hidden_size": 8,
+            "intermediate_size": 5,
+            "num_attention_heads": 2,
+            "num_hidden_layers": 1,
+            "projector_hidden_size": 12,
+            "layer_norm_eps": 1e-3,
+        },
+        text_config={"hidden_size": 8, "num_attention_heads": 2},
+    )
+    model = FunAsrNanoForConditionalGeneration(config)
+    assert len(model.audio_tower.layers) == 3
+    assert model.audio_tower.layers[0].self_attn.q_proj.in_features == 6
+    assert isinstance(model.audio_tower.layers[0].final_layernorm, nn.Identity)
+    assert model.audio_tower.layers[1].final_layernorm.eps == 1e-4
+    assert model.audio_tower.layers[2].final_layernorm.eps == 1e-4
+    assert model.multi_modal_projector.linear_1.out_features == 12
+    assert model.multi_modal_projector.layers[0].mlp.fc1.out_features == 5
+    assert model.multi_modal_projector.layers[0].input_layernorm.eps == 1e-3
+
+
+def tiny_model():
     model = FunAsrNanoForConditionalGeneration.__new__(
         FunAsrNanoForConditionalGeneration
     )
     nn.Module.__init__(model)
     model.config = SimpleNamespace(
-        checkpoint_layout=layout,
-        encoder_config=SimpleNamespace(
-            encoder_layers=2, num_timestamp_prediction_blocks=1
-        ),
         text_config=SimpleNamespace(tie_word_embeddings=False),
     )
     model.audio_tower = FunAsrNanoAudioEncoder(
@@ -114,44 +156,10 @@ def tiny_model(layout="flat"):
     return model.eval()
 
 
-def split_key(name):
-    """Test export fixture: spell out the three blocks and two boundary norms."""
-    name = "model." + name
-    if name.startswith("model.audio_tower."):
-        for source, target in [
-            ("layers.1.final_layernorm.", "layer_norm."),
-            ("layers.2.final_layernorm.", "timestamp_prediction_layer_norm."),
-            ("layers.0.", "stem."),
-            ("layers.1.", "layers.0."),
-            ("layers.2.", "timestamp_prediction_layers.0."),
-        ]:
-            if name.startswith("model.audio_tower." + source):
-                name = name.replace(source, target, 1)
-                break
-    else:
-        name = name.replace("multi_modal_projector.layers.", "audio_adaptor.blocks.")
-    for source, target in [
-        (".input_layernorm.", ".self_attn_layer_norm."),
-        (".post_attention_layernorm.", ".final_layer_norm."),
-        (".self_attn.o_proj.", ".self_attn.out_proj."),
-        (".self_attn.fsmn.", ".feedforward_sequential_memory."),
-        (".mlp.fc1.", ".fc1."),
-        (".mlp.fc2.", ".fc2."),
-    ]:
-        name = name.replace(source, target)
-    return name
-
-
-def flat_key(name):
-    """Test export fixture: current HF uses o_proj for attention output."""
-    return "model." + name.replace(".self_attn.out_proj.", ".self_attn.o_proj.")
-
-
-@pytest.mark.parametrize("layout", ["flat", "split"])
-def test_full_audio_load_and_output(layout):
-    source, target = tiny_model(), tiny_model(layout)
+def test_full_audio_load_and_output():
+    source, target = tiny_model(), tiny_model()
     weights = [
-        (flat_key(name) if layout == "flat" else split_key(name), tensor.clone())
+        ("model." + name, tensor.clone())
         for name, tensor in source.state_dict().items()
     ]
     target.load_weights(reversed(weights))
@@ -165,7 +173,9 @@ def test_full_audio_load_and_output(layout):
         )
 
 
-@pytest.mark.parametrize("failure", ["missing", "duplicate", "shape", "unknown_bias"])
+@pytest.mark.parametrize(
+    "failure", ["missing", "duplicate", "shape", "unknown_bias", "legacy_adaptor"]
+)
 def test_loader_rejects_incomplete_or_ambiguous_weights(failure):
     model = tiny_model()
     weights = [
@@ -177,8 +187,10 @@ def test_loader_rejects_incomplete_or_ambiguous_weights(failure):
         weights.append(weights[0])
     elif failure == "shape":
         weights[0] = (weights[0][0], torch.zeros(1))
-    else:
+    elif failure == "unknown_bias":
         weights.append(("model.audio_tower.missing.bias", torch.zeros(1)))
+    else:
+        weights.append(("model.audio_adaptor.blocks.0.fc1.weight", torch.zeros(1)))
     with pytest.raises(ValueError):
         model.load_weights(weights)
 
@@ -189,29 +201,15 @@ def test_flat_model_keeps_all_valid_audio_frames():
         feature=torch.randn(1, 6, 17), feature_attention_mask=torch.ones(1, 17)
     )
     assert model.get_audio_feature([item]).shape == (17, 8)
-    model.config.checkpoint_layout = "split"
-    assert model.get_audio_feature([item]).shape == (3, 8)
 
 
-@pytest.mark.parametrize("flat", [False, True])
-def test_feature_extractor_reads_layout_and_lfr_fields(tmp_path, flat):
+def test_feature_extractor_reads_hf_lfr_fields_without_model_config(tmp_path):
     import json
 
     from sglang_omni.models.fun_asr.configuration_fun_asr import (
         FunAsrNanoFeatureExtractor,
     )
 
-    audio = {
-        "num_hidden_layers": 3 if flat else 2,
-        (
-            "num_timestamp_prediction_layers"
-            if flat
-            else "num_timestamp_prediction_blocks"
-        ): 1,
-    }
-    (tmp_path / "config.json").write_text(
-        json.dumps({"model_type": "fun_asr_nano", "audio_config": audio})
-    )
     (tmp_path / "processor_config.json").write_text(
         json.dumps(
             {
@@ -229,7 +227,6 @@ def test_feature_extractor_reads_layout_and_lfr_fields(tmp_path, flat):
     )
     assert extractor.lfr_m == 3
     assert extractor.lfr_n == 2
-    assert extractor.checkpoint_layout == ("flat" if flat else "split")
 
 
 def test_encoder_and_projector_match_native_hf():
@@ -255,10 +252,7 @@ def test_encoder_and_projector_match_native_hf():
     audio_config._attn_implementation = "eager"
     encoder = reference.FunAsrNanoEncoder(audio_config).eval()
     encoder.load_state_dict(
-        {
-            name.replace(".self_attn.out_proj.", ".self_attn.o_proj."): tensor
-            for name, tensor in model.audio_tower.state_dict().items()
-        },
+        model.audio_tower.state_dict(),
         strict=True,
     )
     adaptor_config = configs.FunAsrNanoAdaptorConfig(
@@ -273,10 +267,7 @@ def test_encoder_and_projector_match_native_hf():
         SimpleNamespace(audio_config=audio_config, adaptor_config=adaptor_config)
     ).eval()
     projector.load_state_dict(
-        {
-            name.replace(".self_attn.out_proj.", ".self_attn.o_proj."): tensor
-            for name, tensor in model.multi_modal_projector.state_dict().items()
-        },
+        model.multi_modal_projector.state_dict(),
         strict=True,
     )
     x = torch.randn(2, 7, 6)

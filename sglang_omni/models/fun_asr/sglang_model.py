@@ -25,9 +25,7 @@ from sglang.srt.models.qwen3 import Qwen3ForCausalLM
 from sglang.srt.utils import add_prefix
 from transformers.activations import ACT2FN
 
-from .checkpoint import canonical_weight_name
 from .configuration_fun_asr import FunAsrNanoConfig
-from .tool_funcs.audio_lengths import fun_asr_audio_token_length
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +97,7 @@ class MultiHeadedAttentionSANM(nn.Module):
         self.q_proj = nn.Linear(in_feat, n_feat)
         self.k_proj = nn.Linear(in_feat, n_feat)
         self.v_proj = nn.Linear(in_feat, n_feat)
-        self.out_proj = nn.Linear(n_feat, n_feat)
+        self.o_proj = nn.Linear(n_feat, n_feat)
         self.attn_dropout_p = float(dropout_rate)
 
     def forward(
@@ -123,7 +121,7 @@ class MultiHeadedAttentionSANM(nn.Module):
             is_causal=False,
         )
         out = out.transpose(1, 2).contiguous().view(b, t, self.h * self.d_k)
-        return self.out_proj(out), v
+        return self.o_proj(out), v
 
 
 class FunAsrNanoFSMN(nn.Module):
@@ -291,7 +289,7 @@ class MultiHeadedAttention(nn.Module):
         self.q_proj = nn.Linear(n_feat, n_feat)
         self.k_proj = nn.Linear(n_feat, n_feat)
         self.v_proj = nn.Linear(n_feat, n_feat)
-        self.out_proj = nn.Linear(n_feat, n_feat)
+        self.o_proj = nn.Linear(n_feat, n_feat)
         self.attn_dropout_p = float(dropout_rate)
 
     def forward(
@@ -314,7 +312,7 @@ class MultiHeadedAttention(nn.Module):
             is_causal=False,
         )
         out = out.transpose(1, 2).contiguous().view(b, t, self.h * self.d_k)
-        return self.out_proj(out)
+        return self.o_proj(out)
 
 
 class AdaptorEncoderLayer(nn.Module):
@@ -427,33 +425,35 @@ class FunAsrNanoForConditionalGeneration(nn.Module):
     ) -> None:
         super().__init__()
         self.config = config
-        enc_cfg = config.encoder_config
+        enc_cfg = config.audio_config
+        adaptor_cfg = config.adaptor_config
 
         self.audio_tower = FunAsrNanoAudioEncoder(
             input_size=enc_cfg.input_size,
-            output_size=enc_cfg.d_model,
-            attention_heads=enc_cfg.encoder_attention_heads,
-            linear_units=enc_cfg.encoder_ffn_dim,
-            num_blocks=enc_cfg.encoder_layers,
-            tp_blocks=enc_cfg.num_timestamp_prediction_blocks,
-            kernel_size=enc_cfg.kernel_size,
-            dropout_rate=enc_cfg.dropout,
+            output_size=enc_cfg.hidden_size,
+            attention_heads=enc_cfg.num_attention_heads,
+            linear_units=enc_cfg.intermediate_size,
+            num_blocks=enc_cfg.num_hidden_layers
+            - enc_cfg.num_timestamp_prediction_layers,
+            tp_blocks=enc_cfg.num_timestamp_prediction_layers,
+            kernel_size=enc_cfg.fsmn_kernel_size,
+            dropout_rate=enc_cfg.hidden_dropout,
             attention_dropout_rate=enc_cfg.attention_dropout,
             activation_dropout_rate=enc_cfg.activation_dropout,
-            activation_function=enc_cfg.activation_function,
+            activation_function=enc_cfg.hidden_act,
             layer_norm_eps=enc_cfg.layer_norm_eps,
         )
         self.multi_modal_projector = FunAsrNanoAdaptor(
-            encoder_dim=enc_cfg.d_model,
+            encoder_dim=enc_cfg.hidden_size,
             llm_dim=config.text_config.hidden_size,
-            ffn_dim=config.adaptor_intermediate_size,
-            num_layers=config.adaptor_num_hidden_layers,
-            attention_heads=config.adaptor_num_attention_heads,
-            dropout_rate=0.0,
-            activation_function=config.activation_function,
-            intermediate_size=config.adaptor_ffn_dim,
-            layer_norm_eps=config.adaptor_layer_norm_eps,
-            projector_activation_function=config.projector_hidden_act,
+            ffn_dim=adaptor_cfg.projector_hidden_size,
+            num_layers=adaptor_cfg.num_hidden_layers,
+            attention_heads=adaptor_cfg.num_attention_heads,
+            dropout_rate=adaptor_cfg.hidden_dropout,
+            activation_function=adaptor_cfg.hidden_act,
+            intermediate_size=adaptor_cfg.intermediate_size,
+            layer_norm_eps=adaptor_cfg.layer_norm_eps,
+            projector_activation_function=adaptor_cfg.projector_hidden_act,
         )
         self.language_model = Qwen3ForCausalLM(
             config.text_config,
@@ -534,12 +534,7 @@ class FunAsrNanoForConditionalGeneration(nn.Module):
 
         embeddings: List[torch.Tensor] = []
         for b, length in enumerate(lengths):
-            layout = getattr(
-                getattr(self, "config", None), "checkpoint_layout", "split"
-            )
-            num_tokens = max(
-                int(fun_asr_audio_token_length(length, checkpoint_layout=layout)), 1
-            )
+            num_tokens = int(length)
             embeddings.append(adp_out[b, :num_tokens, :])
         return torch.cat(embeddings, dim=0)
 
@@ -576,13 +571,11 @@ class FunAsrNanoForConditionalGeneration(nn.Module):
 
         for name, loaded_weight in weights:
             checkpoint_name = name
-            enc = self.config.encoder_config
-            name = canonical_weight_name(
-                name,
-                layout=self.config.checkpoint_layout,
-                num_blocks=enc.encoder_layers,
-                tp_blocks=enc.num_timestamp_prediction_blocks,
-            )
+            if name.startswith("model.audio_adaptor."):
+                raise ValueError(
+                    "Fun-ASR supports only the current flat HF checkpoint; "
+                    f"unsupported checkpoint weight: {name}"
+                )
             if "rotary_emb.inv_freq" in name:
                 continue
             if "rotary_emb.cos_cached" in name or "rotary_emb.sin_cached" in name:

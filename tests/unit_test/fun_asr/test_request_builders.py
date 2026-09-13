@@ -84,14 +84,12 @@ def _feature_extractor(num_lfr_frames: int):
     return _call
 
 
-@pytest.mark.parametrize("layout", ["flat", "split"])
 def test_fun_asr_request_builder_records_inclusive_audio_offsets(
-    monkeypatch, layout
+    monkeypatch,
 ) -> None:
     num_lfr_frames = 17
-    num_audio_tokens = 17 if layout == "flat" else 3
+    num_audio_tokens = 17
     extractor = _feature_extractor(num_lfr_frames)
-    extractor.checkpoint_layout = layout
 
     monkeypatch.setattr(
         transcription,
@@ -167,10 +165,10 @@ def test_fun_asr_request_builder_encodes_after_offsets_are_final(monkeypatch) ->
 
     item = data.req.multimodal_inputs.mm_items[0]
     assert observed["offsets"] == item.offsets
-    assert observed["num_audio_tokens"] == 3
+    assert observed["num_audio_tokens"] == 17
     assert observed["audio_fingerprint"] == audio_fingerprint(audio)
     assert item.feature is None
-    assert item.precomputed_embeddings.shape[0] == 3
+    assert item.precomputed_embeddings.shape[0] == 17
 
 
 def test_fun_asr_request_builder_language_prompt(monkeypatch) -> None:

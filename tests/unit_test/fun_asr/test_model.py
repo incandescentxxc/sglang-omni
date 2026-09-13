@@ -17,9 +17,6 @@ from sglang_omni.models.fun_asr.sglang_model import (
     MultiHeadedAttentionSANM,
     _sanm_mask_from_lengths,
 )
-from sglang_omni.models.fun_asr.tool_funcs.audio_lengths import (
-    fun_asr_low_frame_rate_length,
-)
 
 
 def test_fun_asr_audio_modules_match_current_checkpoint_parameter_names() -> None:
@@ -37,7 +34,7 @@ def test_fun_asr_audio_modules_match_current_checkpoint_parameter_names() -> Non
     assert "layers.0.self_attn.q_proj.weight" in encoder_names
     assert "layers.0.self_attn.k_proj.weight" in encoder_names
     assert "layers.0.self_attn.v_proj.weight" in encoder_names
-    assert "layers.0.self_attn.out_proj.weight" in encoder_names
+    assert "layers.0.self_attn.o_proj.weight" in encoder_names
     assert "layers.0.self_attn.fsmn.conv.weight" in encoder_names
     assert "layers.0.mlp.fc1.weight" in encoder_names
     assert "layers.0.input_layernorm.weight" in encoder_names
@@ -70,10 +67,6 @@ def _weight_loader_target() -> FunAsrNanoForConditionalGeneration:
     nn.Module.__init__(model)
     model.config = SimpleNamespace(
         text_config=SimpleNamespace(tie_word_embeddings=False),
-        checkpoint_layout="split",
-        encoder_config=SimpleNamespace(
-            encoder_layers=2, num_timestamp_prediction_blocks=1
-        ),
     )
     model.audio_tower = nn.Module()
     model.audio_tower.layers = nn.ModuleList([nn.Module(), nn.Module()])
@@ -86,12 +79,14 @@ def test_fun_asr_weight_loader_loads_current_audio_prefixes() -> None:
     model = _weight_loader_target()
     expected = torch.tensor([2.0, 3.0])
 
-    model.load_weights([("model.audio_tower.layer_norm.weight", expected.clone())])
+    model.load_weights(
+        [("model.audio_tower.layers.1.final_layernorm.weight", expected.clone())]
+    )
 
     assert torch.equal(model.audio_tower.layers[1].final_layernorm.weight, expected)
 
 
-def test_fun_asr_weight_loader_maps_new_checkpoint_names() -> None:
+def test_fun_asr_weight_loader_loads_native_checkpoint_names() -> None:
     model = _weight_loader_target()
     model.audio_tower.layers[1].final_layernorm = nn.Identity()
     model.audio_tower.layers[0].self_attn = nn.Module()
@@ -110,10 +105,10 @@ def test_fun_asr_weight_loader_maps_new_checkpoint_names() -> None:
     model.load_weights(
         [
             (
-                "model.audio_tower.stem.feedforward_sequential_memory.conv.weight",
+                "model.audio_tower.layers.0.self_attn.fsmn.conv.weight",
                 expected_fsmn,
             ),
-            ("model.audio_adaptor.blocks.0.fc1.weight", expected_adaptor),
+            ("model.multi_modal_projector.layers.0.mlp.fc1.weight", expected_adaptor),
         ]
     )
 
@@ -162,7 +157,7 @@ def test_fun_asr_audio_feature_shape() -> None:
 
     embedding = model.get_audio_feature([item])
 
-    assert embedding.shape == (3, 4)
+    assert embedding.shape == (17, 4)
 
 
 def _tiny_audio_mm_model() -> FunAsrNanoForConditionalGeneration:
@@ -307,9 +302,7 @@ def test_get_audio_feature_batched_matches_serial() -> None:
         serial_parts = [model.get_audio_feature([item]) for item in items]
         serial = torch.cat(serial_parts, dim=0)
 
-    expected_tokens = sum(
-        max(fun_asr_low_frame_rate_length(length), 1) for length in lengths
-    )
+    expected_tokens = sum(lengths)
     assert batched.shape == (expected_tokens, 8)
     assert serial.shape == batched.shape
     assert torch.allclose(batched, serial, atol=1e-5, rtol=1e-5)
@@ -347,7 +340,7 @@ def test_get_audio_feature_single_item_output_length() -> None:
     with torch.no_grad():
         out = model.get_audio_feature([item])
 
-    assert out.shape == (fun_asr_low_frame_rate_length(length), 8)
+    assert out.shape == (length, 8)
 
 
 def test_get_audio_feature_rejects_empty_items() -> None:

@@ -7,6 +7,10 @@ one uploaded audio file per request and returns text.
 
 Fun-ASR does not support `/v1/audio/translations`; that endpoint returns HTTP 400. Use `/v1/audio/transcriptions`.
 
+Use the latest `FunAudioLLM/Fun-ASR-Nano-2512-hf` checkpoint with the flat
+audio encoder layout. Older split-layout checkpoints are unsupported; download
+the current HF revision when upgrading from an older snapshot.
+
 ## Prerequisites
 
 Install `sglang-omni` by following [Installation](../get_started/installation.md),
