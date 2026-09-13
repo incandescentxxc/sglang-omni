@@ -31,7 +31,9 @@ def canonical_weight_name(
         return name
     _validate_layout_matches_key_style(name, layout)
     if layout == "split":
-        name = _split_to_flat_layer_names(name, num_blocks=num_blocks, tp_blocks=tp_blocks)
+        name = _split_to_flat_layer_names(
+            name, num_blocks=num_blocks, tp_blocks=tp_blocks
+        )
         name = _rename_split_submodules(name)
     # Both split export variants call this "out_proj"; current HF flat
     # checkpoints call it "o_proj". Rename unconditionally so it matches
