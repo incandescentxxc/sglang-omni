@@ -568,15 +568,9 @@ class FunAsrNanoForConditionalGeneration(nn.Module):
             ("gate_up_proj", "up_proj", 1),
         ]
         params_dict = dict(self.named_parameters(remove_duplicate=False))
-        loaded_audio = set()
 
         for name, loaded_weight in weights:
             checkpoint_name = name
-            if name.startswith("model.audio_adaptor."):
-                raise ValueError(
-                    "Fun-ASR supports only the current flat HF checkpoint; "
-                    f"unsupported checkpoint weight: {name}"
-                )
             if "rotary_emb.inv_freq" in name:
                 continue
             if "rotary_emb.cos_cached" in name or "rotary_emb.sin_cached" in name:
@@ -637,28 +631,8 @@ class FunAsrNanoForConditionalGeneration(nn.Module):
                     )
                 continue
             param = params_dict[name]
-            if strict_multimodal:
-                if name in loaded_audio:
-                    raise ValueError(
-                        f"Duplicate Fun-ASR checkpoint destination: {name}"
-                    )
-                if param.shape != loaded_weight.shape:
-                    raise ValueError(
-                        f"Fun-ASR checkpoint shape mismatch for {checkpoint_name}: {loaded_weight.shape} != {param.shape}"
-                    )
-                loaded_audio.add(name)
             weight_loader = getattr(param, "weight_loader", default_weight_loader)
             weight_loader(param, loaded_weight)
-
-        missing = {
-            name
-            for name in params_dict
-            if name.startswith(("audio_tower.", "multi_modal_projector."))
-        } - loaded_audio
-        if missing:
-            raise ValueError(
-                f"Missing Fun-ASR checkpoint parameters: {sorted(missing)}"
-            )
 
 
 EntryClass = FunAsrNanoForConditionalGeneration

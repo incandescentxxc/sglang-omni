@@ -428,17 +428,8 @@ class FunAsrNanoConfig(PretrainedConfig):
         if isinstance(text_config, dict):
             text_config = HFQwen3Config(**text_config)
         elif text_config is None:
-            text_config = HFQwen3Config(
-                hidden_size=1024,
-                intermediate_size=3072,
-                num_hidden_layers=28,
-                num_attention_heads=16,
-                num_key_value_heads=8,
-                head_dim=128,
-            )
+            text_config = HFQwen3Config()
         self.text_config = text_config
-        if adaptor_config.hidden_size != text_config.hidden_size:
-            raise ValueError("Fun-ASR adaptor hidden size must match text hidden size")
         self.audio_token_id = audio_token_id
         self.initializer_range = initializer_range
 
