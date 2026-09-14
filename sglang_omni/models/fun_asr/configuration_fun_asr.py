@@ -26,8 +26,8 @@ AUDIO_PLACEHOLDER_TOKEN = "<|object_ref_start|>"
 class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
     """80-mel log-mel fbank + LFR stacking, matching Fun-ASR's WavFrontend.
 
-    Output ``input_features`` shape is ``[batch, lfr_m * n_mels, T_lfr]`` =
-    ``[batch, 560, T_lfr]`` where ``T_lfr = ceil(T_mel / lfr_n)``. The encoder's
+    Output ``input_features`` shape is ``[batch, num_frames_lfr * n_mels, T_lfr]`` =
+    ``[batch, 560, T_lfr]`` where ``T_lfr = ceil(T_mel / stride_lfr)``. The encoder's
     ``input_size`` is 560 (= 7 * 80). ``attention_mask`` tracks valid LFR
     frames; its per-row sum is the post-LFR frame count used to size audio
     placeholders and embeddings.
@@ -41,13 +41,11 @@ class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
         sampling_rate: int = 16000,
         frame_length: int = 25,
         frame_shift: int = 10,
-        lfr_m: int = 7,
-        lfr_n: int = 6,
+        num_frames_lfr: int = 7,
+        stride_lfr: int = 6,
         window: str = "hamming",
         padding_value: float = 0.0,
         return_attention_mask: bool = True,
-        num_frames_lfr: int | None = None,
-        stride_lfr: int | None = None,
         **kwargs,
     ):
         super().__init__(
@@ -67,8 +65,8 @@ class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
         self.n_fft = int(round(frame_length * sampling_rate / 1000))  # 400 @ 16k
         self.hop_length = int(round(frame_shift * sampling_rate / 1000))  # 160 @ 16k
         self.win_length = self.n_fft
-        self.lfr_m = lfr_m if num_frames_lfr is None else num_frames_lfr
-        self.lfr_n = lfr_n if stride_lfr is None else stride_lfr
+        self.num_frames_lfr = num_frames_lfr
+        self.stride_lfr = stride_lfr
         self.window = window
         self.padding_value = padding_value
         self.return_attention_mask = return_attention_mask
@@ -82,7 +80,7 @@ class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
     def nb_max_frames(self) -> int:
         """Max LFR frames for a 30s clip — used for context_length sizing."""
         max_mel = int(round(30.0 * self.sampling_rate / self.hop_length))
-        return (max_mel + self.lfr_n - 1) // self.lfr_n
+        return (max_mel + self.stride_lfr - 1) // self.stride_lfr
 
     def _extract_fbank(self, waveform: np.ndarray) -> tuple[torch.Tensor, int]:
         """Compute 80-mel log-mel fbank via Kaldi compliance (matches funasr WavFrontend).
@@ -114,25 +112,29 @@ class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
     def _lfr(self, fbank: torch.Tensor) -> tuple[torch.Tensor, int]:
         """Low frame rate stacking (matches funasr ``apply_lfr``).
 
-        Stacks ``lfr_m`` frames every ``lfr_n`` stride: left-pad by repeating
-        the first frame ``(lfr_m-1)//2`` times, right-pad the last frame to
+        Stacks ``num_frames_lfr`` frames every ``stride_lfr`` stride: left-pad by repeating
+        the first frame ``(num_frames_lfr-1)//2`` times, right-pad the last frame to
         fill the final window, then gather via ``as_strided``.
-        Returns ``(lfr_out, T_lfr)`` where ``lfr_out`` is ``[T_lfr, lfr_m*n_mels]``.
+        Returns ``(lfr_out, T_lfr)`` where ``lfr_out`` is ``[T_lfr, num_frames_lfr*n_mels]``.
         """
         t_mel = fbank.shape[0]
-        t_lfr = int(np.ceil(t_mel / self.lfr_n))
-        pad_left = (self.lfr_m - 1) // 2
+        t_lfr = int(np.ceil(t_mel / self.stride_lfr))
+        pad_left = (self.num_frames_lfr - 1) // 2
         left_padding = fbank[0:1].repeat(pad_left, 1)
         inputs = torch.vstack([left_padding, fbank])
         t_padded = inputs.shape[0]
         feat_dim = inputs.shape[-1]
-        strides = (self.lfr_n * feat_dim, 1)
-        sizes = (t_lfr, self.lfr_m * feat_dim)
-        last_idx = (t_padded - self.lfr_m) // self.lfr_n + 1
-        num_padding = self.lfr_m - (t_padded - last_idx * self.lfr_n)
+        strides = (self.stride_lfr * feat_dim, 1)
+        sizes = (t_lfr, self.num_frames_lfr * feat_dim)
+        last_idx = (t_padded - self.num_frames_lfr) // self.stride_lfr + 1
+        num_padding = self.num_frames_lfr - (t_padded - last_idx * self.stride_lfr)
         if num_padding > 0:
             num_padding = (
-                (2 * self.lfr_m - 2 * t_padded + (t_lfr - 1 + last_idx) * self.lfr_n)
+                (
+                    2 * self.num_frames_lfr
+                    - 2 * t_padded
+                    + (t_lfr - 1 + last_idx) * self.stride_lfr
+                )
                 / 2
                 * (t_lfr - last_idx)
             )
@@ -171,8 +173,8 @@ class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
         feats, masks = [], []
         for wav in waveforms:
             fbank, t_mel = self._extract_fbank(wav)
-            lfr_feat, t_lfr = self._lfr(fbank)  # [t_lfr, lfr_m*n_mels=560]
-            # Transpose to [lfr_m * n_mels, t_lfr] = [560, t_lfr] (encoder expects [B, T, 560])
+            lfr_feat, t_lfr = self._lfr(fbank)  # [t_lfr, num_frames_lfr*n_mels=560]
+            # Transpose to [num_frames_lfr * n_mels, t_lfr] = [560, t_lfr] (encoder expects [B, T, 560])
             lfr_feat = lfr_feat.t().contiguous()
             feats.append(lfr_feat)
             masks.append([1] * t_lfr)
@@ -184,7 +186,7 @@ class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
         else:
             max_t = max(f.shape[1] for f in feats)
 
-        n_feat = self.lfr_m * self.n_mels
+        n_feat = self.num_frames_lfr * self.n_mels
         batched = np.full(
             (len(feats), n_feat, max_t), self.padding_value, dtype=np.float32
         )
@@ -408,7 +410,7 @@ class FunAsrNanoConfig(PretrainedConfig):
         tie_word_embeddings: bool = True,
         **kwargs,
     ):
-        if "encoder_config" in kwargs or "checkpoint_layout" in kwargs:
+        if "encoder_config" in kwargs:
             raise ValueError(
                 "Fun-ASR supports only the current flat HF checkpoint; "
                 "download the latest FunAudioLLM/Fun-ASR-Nano-2512-hf revision."

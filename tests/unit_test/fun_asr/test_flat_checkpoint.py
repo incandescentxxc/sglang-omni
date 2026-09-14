@@ -25,7 +25,6 @@ from sglang_omni.models.fun_asr.sglang_model import (
                 "num_timestamp_prediction_blocks": 20,
             }
         },
-        {"checkpoint_layout": "split"},
     ],
 )
 def test_legacy_config_rejected(config):
@@ -61,7 +60,6 @@ def test_nested_config_counts_and_roundtrip():
     restored = FunAsrNanoConfig.from_dict(config.to_dict())
     assert restored.audio_config.to_dict() == config.audio_config.to_dict()
     assert restored.adaptor_config.to_dict() == config.adaptor_config.to_dict()
-    assert "checkpoint_layout" not in restored.to_dict()
     assert "encoder_config" not in restored.to_dict()
 
 
@@ -225,8 +223,8 @@ def test_feature_extractor_reads_hf_lfr_fields_without_model_config(tmp_path):
     extractor = FunAsrNanoFeatureExtractor.from_pretrained(
         tmp_path, local_files_only=True
     )
-    assert extractor.lfr_m == 3
-    assert extractor.lfr_n == 2
+    assert extractor.num_frames_lfr == 3
+    assert extractor.stride_lfr == 2
 
 
 def test_encoder_and_projector_match_native_hf():
