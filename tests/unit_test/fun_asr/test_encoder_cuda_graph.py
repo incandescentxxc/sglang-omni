@@ -89,7 +89,7 @@ def test_get_audio_feature_routes_through_graph_runner() -> None:
 
     assert observed["xs_shape"] == (2, 17, 560)
     assert observed["lengths"] == [17, 9]
-    expected_rows = 17 + 9
+    expected_rows = 3 + 2  # ceil(17 / 8) + ceil(9 / 8)
     assert out.shape == (expected_rows, 4)
     # eager tower must not have run
     assert model.audio_tower.calls == []
@@ -108,14 +108,14 @@ def test_get_audio_feature_falls_back_to_eager_when_runner_declines() -> None:
     xs_shape, mask_shape = model.audio_tower.calls[0]
     assert tuple(xs_shape) == (2, 17, 560)
     assert tuple(mask_shape) == (2, 1, 17)
-    expected_rows = 17 + 9
+    expected_rows = 3 + 2  # ceil(17 / 8) + ceil(9 / 8)
     assert out.shape == (expected_rows, 4)
 
 
-def test_get_audio_feature_without_runner_preserves_frames() -> None:
+def test_get_audio_feature_without_runner_truncates_embeddings() -> None:
     model = _model_with(None)
     out = model.get_audio_feature([_item(12)])
 
     # single unpadded item keeps the maskless fast path
     assert model.audio_tower.calls == [((1, 12, 560), None)]
-    assert out.shape == (12, 4)
+    assert out.shape == (2, 4)  # ceil(12 / 8)
