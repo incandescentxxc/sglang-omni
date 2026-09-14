@@ -333,13 +333,6 @@ class FunAsrNanoEncoderConfig(PretrainedConfig):
         layer_norm_eps: float = 1e-5,
         **kwargs,
     ):
-        if "num_timestamp_prediction_blocks" in kwargs or "encoder_layers" in kwargs:
-            raise ValueError(
-                "Fun-ASR supports only the current flat HF checkpoint; "
-                "download the latest FunAudioLLM/Fun-ASR-Nano-2512-hf revision."
-            )
-        if not 0 <= num_timestamp_prediction_layers < num_hidden_layers:
-            raise ValueError("Invalid Fun-ASR transcription/timestamp layer counts")
         super().__init__(**kwargs)
         self.num_mel_bins = num_mel_bins
         self.num_stacked_frames = num_stacked_frames
