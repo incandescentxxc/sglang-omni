@@ -25,8 +25,8 @@ from sglang_omni.scheduling.token_text_streaming import (
     make_token_text_stream_output_builder,
 )
 
-from .audio_lengths import fun_asr_low_frame_rate_length
 from .configuration_fun_asr import AUDIO_PLACEHOLDER_TOKEN as _AUDIO_PAD
+from .tool_funcs.audio_lengths import fun_asr_low_frame_rate_length
 
 logger = logging.getLogger(__name__)
 

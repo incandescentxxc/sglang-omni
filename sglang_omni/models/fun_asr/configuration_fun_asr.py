@@ -20,7 +20,7 @@ from transformers.feature_extraction_sequence_utils import SequenceFeatureExtrac
 
 from sglang_omni.utils.audio_features import cached_fbank
 
-from .audio_lengths import fun_asr_low_frame_rate_length
+from .tool_funcs.audio_lengths import fun_asr_low_frame_rate_length
 
 AUDIO_PLACEHOLDER_TOKEN = "<|object_ref_start|>"
 

@@ -3,8 +3,10 @@
 import pytest
 import torch
 
-from sglang_omni.models.fun_asr.audio_lengths import fun_asr_low_frame_rate_length
 from sglang_omni.models.fun_asr.configuration_fun_asr import FunAsrNanoProcessor
+from sglang_omni.models.fun_asr.tool_funcs.audio_lengths import (
+    fun_asr_low_frame_rate_length,
+)
 
 
 @pytest.mark.parametrize(
