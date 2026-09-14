@@ -201,7 +201,7 @@ def test_fun_asr_threads_generation_batch_and_request_build_policy(
     )
 
     def _fake_server_args_builder(model_path, context_length, **overrides):
-        expected_audio_tokens = 500
+        expected_audio_tokens = 63  # ceil(500 / 8)
         assert (
             context_length
             == expected_audio_tokens
