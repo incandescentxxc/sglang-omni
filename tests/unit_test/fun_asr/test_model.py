@@ -157,7 +157,8 @@ def test_fun_asr_audio_feature_shape() -> None:
 
     embedding = model.get_audio_feature([item])
 
-    assert embedding.shape == (17, 4)
+    assert embedding.shape == (3, 4)
+    torch.testing.assert_close(embedding, item.feature[0, :, :3].T)
 
 
 def _tiny_audio_mm_model() -> FunAsrNanoForConditionalGeneration:
@@ -302,7 +303,7 @@ def test_get_audio_feature_batched_matches_serial() -> None:
         serial_parts = [model.get_audio_feature([item]) for item in items]
         serial = torch.cat(serial_parts, dim=0)
 
-    expected_tokens = sum(lengths)
+    expected_tokens = sum((length + 7) // 8 for length in lengths)
     assert batched.shape == (expected_tokens, 8)
     assert serial.shape == batched.shape
     assert torch.allclose(batched, serial, atol=1e-5, rtol=1e-5)
@@ -340,7 +341,7 @@ def test_get_audio_feature_single_item_output_length() -> None:
     with torch.no_grad():
         out = model.get_audio_feature([item])
 
-    assert out.shape == (length, 8)
+    assert out.shape == (2, 8)
 
 
 def test_get_audio_feature_rejects_empty_items() -> None:

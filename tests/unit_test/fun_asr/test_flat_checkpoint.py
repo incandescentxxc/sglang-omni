@@ -193,12 +193,12 @@ def test_loader_rejects_incomplete_or_ambiguous_weights(failure):
         model.load_weights(weights)
 
 
-def test_flat_model_keeps_all_valid_audio_frames():
+def test_flat_model_preserves_historical_audio_token_count():
     model = tiny_model()
     item = SimpleNamespace(
         feature=torch.randn(1, 6, 17), feature_attention_mask=torch.ones(1, 17)
     )
-    assert model.get_audio_feature([item]).shape == (17, 8)
+    assert model.get_audio_feature([item]).shape == (3, 8)
 
 
 def test_feature_extractor_reads_hf_lfr_fields_without_model_config(tmp_path):

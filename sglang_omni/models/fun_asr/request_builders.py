@@ -25,6 +25,7 @@ from sglang_omni.scheduling.token_text_streaming import (
     make_token_text_stream_output_builder,
 )
 
+from .audio_lengths import fun_asr_low_frame_rate_length
 from .configuration_fun_asr import AUDIO_PLACEHOLDER_TOKEN as _AUDIO_PAD
 
 logger = logging.getLogger(__name__)
@@ -207,7 +208,7 @@ def make_fun_asr_scheduler_adapters(
                 (features.shape[0], features.shape[-1]), dtype=torch.long
             )
         num_lfr_frames = int(feature_attention_mask.sum().item())
-        num_audio_tokens = num_lfr_frames
+        num_audio_tokens = fun_asr_low_frame_rate_length(num_lfr_frames)
         logger.debug(
             f"[fun-asr] lfr_frames={num_lfr_frames} "
             f"num_audio_tokens={num_audio_tokens} feat_shape={tuple(features.shape)}"

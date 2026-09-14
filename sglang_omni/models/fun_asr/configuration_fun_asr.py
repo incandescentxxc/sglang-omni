@@ -20,6 +20,8 @@ from transformers.feature_extraction_sequence_utils import SequenceFeatureExtrac
 
 from sglang_omni.utils.audio_features import cached_fbank
 
+from .audio_lengths import fun_asr_low_frame_rate_length
+
 AUDIO_PLACEHOLDER_TOKEN = "<|object_ref_start|>"
 
 
@@ -248,7 +250,7 @@ class FunAsrNanoProcessor:
 
     def _get_feat_extract_output_lengths(self, input_lengths):
         """LFR frames -> audio placeholders and adaptor embeddings."""
-        return input_lengths
+        return fun_asr_low_frame_rate_length(input_lengths)
 
     def __call__(self, text=None, audio=None, audio_kwargs=None, **kwargs):
         inputs: dict[str, Any] = {}

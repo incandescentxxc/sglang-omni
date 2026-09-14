@@ -25,6 +25,7 @@ from sglang.srt.models.qwen3 import Qwen3ForCausalLM
 from sglang.srt.utils import add_prefix
 from transformers.activations import ACT2FN
 
+from .audio_lengths import fun_asr_low_frame_rate_length
 from .configuration_fun_asr import FunAsrNanoConfig
 
 logger = logging.getLogger(__name__)
@@ -534,7 +535,7 @@ class FunAsrNanoForConditionalGeneration(nn.Module):
 
         embeddings: List[torch.Tensor] = []
         for b, length in enumerate(lengths):
-            num_tokens = int(length)
+            num_tokens = fun_asr_low_frame_rate_length(length)
             embeddings.append(adp_out[b, :num_tokens, :])
         return torch.cat(embeddings, dim=0)
 
