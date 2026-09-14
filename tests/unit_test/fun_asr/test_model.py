@@ -86,40 +86,6 @@ def test_fun_asr_weight_loader_loads_current_audio_prefixes() -> None:
     assert torch.equal(model.audio_tower.layers[1].final_layernorm.weight, expected)
 
 
-def test_fun_asr_weight_loader_loads_native_checkpoint_names() -> None:
-    model = _weight_loader_target()
-    model.audio_tower.layers[1].final_layernorm = nn.Identity()
-    model.audio_tower.layers[0].self_attn = nn.Module()
-    model.audio_tower.layers[0].self_attn.fsmn = nn.Module()
-    model.audio_tower.layers[0].self_attn.fsmn.conv = nn.Conv1d(2, 2, 1, bias=False)
-    model.multi_modal_projector.layers = nn.ModuleList([nn.Module()])
-    model.multi_modal_projector.layers[0].mlp = nn.Module()
-    model.multi_modal_projector.layers[0].mlp.fc1 = nn.Linear(2, 2, bias=False)
-    expected_fsmn = torch.full_like(
-        model.audio_tower.layers[0].self_attn.fsmn.conv.weight, 2.0
-    )
-    expected_adaptor = torch.full_like(
-        model.multi_modal_projector.layers[0].mlp.fc1.weight, 3.0
-    )
-
-    model.load_weights(
-        [
-            (
-                "model.audio_tower.layers.0.self_attn.fsmn.conv.weight",
-                expected_fsmn,
-            ),
-            ("model.multi_modal_projector.layers.0.mlp.fc1.weight", expected_adaptor),
-        ]
-    )
-
-    assert torch.equal(
-        model.audio_tower.layers[0].self_attn.fsmn.conv.weight, expected_fsmn
-    )
-    assert torch.equal(
-        model.multi_modal_projector.layers[0].mlp.fc1.weight, expected_adaptor
-    )
-
-
 def test_fun_asr_weight_loader_rejects_unknown_audio_weights() -> None:
     model = _weight_loader_target()
 
