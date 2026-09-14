@@ -31,8 +31,8 @@ class FunAsrNanoFeatureExtractor(SequenceFeatureExtractor):
     Output ``input_features`` shape is ``[batch, num_frames_lfr * n_mels, T_lfr]`` =
     ``[batch, 560, T_lfr]`` where ``T_lfr = ceil(T_mel / stride_lfr)``. The encoder's
     ``input_size`` is 560 (= 7 * 80). ``attention_mask`` tracks valid LFR
-    frames; its per-row sum is the post-LFR frame count used to size audio
-    placeholders and embeddings.
+    frames; its per-row sum is the post-LFR frame count fed to
+    :func:`fun_asr_low_frame_rate_length`.
     """
 
     model_input_names = ["input_features"]
@@ -249,7 +249,7 @@ class FunAsrNanoProcessor:
         return cls(feature_extractor=feature_extractor, tokenizer=tokenizer)
 
     def _get_feat_extract_output_lengths(self, input_lengths):
-        """LFR frames -> audio placeholders and adaptor embeddings."""
+        """LFR frames -> adaptor audio-token count (3x stride-2)."""
         return fun_asr_low_frame_rate_length(input_lengths)
 
     def __call__(self, text=None, audio=None, audio_kwargs=None, **kwargs):
