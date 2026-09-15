@@ -5,7 +5,7 @@ Sources: the [style prompt and do/don't examples](https://github.com/zhaochenyan
 and [additional anti-pattern examples](https://github.com/zhaochenyang20/sglang-diffusion-routing/issues/32#issuecomment-5650093336),
 including [discarded parameters](https://github.com/zhaochenyang20/sglang-diffusion-routing/issues/32#issuecomment-5673011724).
 
-### Principles
+## Principles
 
 Write clean, professional, maintainable code. Match the surrounding codebase's conventions
 where they exist; where they don't, follow these rules.
@@ -13,31 +13,36 @@ where they exist; where they don't, follow these rules.
 The overriding goal is simplicity: fewer, smaller files and fewer functions. Avoid
 speculative generality.
 
-### SIMPLICITY & NON-DUPLICATION
+## SIMPLICITY & NON-DUPLICATION
 
 - Introduce a helper, wrapper, or abstraction layer only when it is used at least
-  twice now and genuinely clarifies the call site.
+  twice (≥2 call sites) now and genuinely clarifies the call site.
 - Don't reinvent what stdlib or an already-imported dep provides (`itertools`, `functools`,
   `collections`, `pathlib`, `dataclasses`, `pydantic`, `torch.nn.functional`). A 3-line
   wrapper around `lru_cache` is noise.
-- Don't pre-extract `_helper`/`_impl` for "cleaner main flow" unless reused more than
-  twice or too long to read in one screen. A 60-line top-to-bottom function beats
-  three 20-line `_step_one/_two/_three` called once each.
+- Don't pre-extract `_helper`/`_impl` for "cleaner main flow" unless it's reused at
+  least twice (≥2 call sites) or too long to read in one screen. A 60-line
+  top-to-bottom function beats three 20-line `_step_one/_two/_three` called once each.
 - Don't add interfaces/base classes/registries/plugin systems before a second concrete
   implementation exists. Two cases first, then abstract.
-- Reuse alone is not enough to justify a trivial helper: inline short operations
-  used only once or twice when extraction adds indirection without clarity.
+- Reuse alone is not enough to justify a trivial helper: inline a short operation
+  used only once (1 call site) when extraction adds indirection without clarity.
   Keep nested callbacks local when their scope or captured state requires it.
 
-### LANGUAGE & COMMENTS
+## LANGUAGE & COMMENTS
 
 - English only: comments, docstrings, log strings, CLI help. (User-facing translatable
   strings go through i18n — not this rule's concern.) If the repo is non-English, match it.
 - Comments sparse, one-line, only for the genuinely non-obvious. Restating code is noise.
+- Comments must be self-contained and explain _why_, not _how_ or _what_. Don't narrate
+  what a code block does or how it does it — the code already shows that. But only document
+  the "why" when specific codes are hard to understand without the context of the comments.
+  Avoid verbose "why" rationale in comments.
+- Sign non-obvious/note comments with the author's name: `# note (name): ...`.
+- No backticks in Python comments.
 - NO process markers: no ★, `# P1`, `# [FIX]`, `# TODO` without a ticket, `# === SECTION ===`
   banners.
 - NO provenance leakage: never name other repos/upstream/"the closed source" in source.
-- NO verbose rationale in comments — the "why" lives in design docs / commits / PRs.
 - Docstrings: Google-style, 1-3 lines. Args/Returns only when non-obvious. One short module
   docstring per file.
 - Do not add opening comment blocks or lengthy explanations after class definitions.
@@ -45,7 +50,7 @@ speculative generality.
 - A long-term workaround gets a one-line comment naming the constraint.
 - `# noqa: <code>` allowed with a reason; bare `# noqa` is not.
 
-### NAMING
+## NAMING
 
 - Classes PascalCase; functions/variables snake_case; constants UPPER_SNAKE.
   Use a leading underscore only for private functions and variables. Public
@@ -57,7 +62,7 @@ speculative generality.
   For example, `speaker_embedding` is clearer than `spks`. Choose names that fit
   the actual operation; short mathematical names belong in local equations.
 
-### TYPING & SIGNATURES
+## TYPING & SIGNATURES
 
 - Full type hints, modern syntax: `X | Y`, `list[...]`, `dict[str, int]`, `X | None`.
   Annotate return types.
@@ -77,7 +82,7 @@ speculative generality.
   parameter, preserve the contract and make that constraint explicit rather than
   pretending the parameter is used.
 
-### DATA STRUCTURES
+## DATA STRUCTURES
 
 - Internal value objects (config, messages, state): `@dataclass`, prefer `kw_only=True`;
   mutable defaults via `field(default_factory=...)`.
@@ -85,19 +90,19 @@ speculative generality.
   Don't hand-roll validators pydantic gives free.
 - Don't mix the two for one concept. Pick per role, not per mood.
 
-### FILE STRUCTURE
+## FILE STRUCTURE
 
 - File > ~400 lines → extract a module. But a 30-line file holding one `_helper` called once
   is also wrong — merge it. Related functions belong together; one concern per file
   does not mean one function per file.
 - One entry-point mechanism per repo (hydra/argparse/fire/`[project.scripts]`). `if __name__
-  == "__main__"` only in entry-point modules, never library modules.
+== "__main__"` only in entry-point modules, never library modules.
 - Module-level side effects (env mutation, global state, `setup_root`, resolver registration)
   only in entry-point modules. Library imports must be side-effect-free.
 - No dead code: unreachable branches, commented-out blocks, stale TODOs,
   "kept for later" stubs.
 
-### ERROR HANDLING & MATURITY
+## ERROR HANDLING & MATURITY
 
 - `assert` for internal invariants (shapes, device, dtype, preconditions you control) — fail
   fast, loud, consistently across sibling modules.
@@ -123,27 +128,25 @@ speculative generality.
   operations guaranteed by the interface. Missing required attributes should fail
   visibly rather than trigger a search for alternate fields or fallback defaults.
 
-### CONTROL FLOW
+## CONTROL FLOW
 
-- Every `if` must have an `else`, either directly or through a complete
-  `if/elif/else` chain.
-- Validate inputs and preconditions before the main logic. Keep related checks
-  flat and minimize nesting instead of interleaving checks with the work they guard.
+- Validate inputs and preconditions before the main logic. When possible, organizing
+ conditions into clear, mutually exclusive if/elif/else branches. Return early for 
+ invalid cases, and keep the main execution path in the final branch to avoid unnecessary 
+ lookups, repeated checks, and deeply nested logic.
 
-### LOGGING
+## LOGGING
 
-- ONE logging library per repo. Don't mix stdlib `logging` and `loguru`. Configure once.
-- One logger per module: `logging.getLogger(__name__)` or `from loguru import logger`.
+- This repo uses stdlib `logging`. Configure once; don't introduce a second logging library.
+- One logger per module: `logging.getLogger(__name__)`.
 - Keep messages terse. No manual `[Info]`, `[Warn]`, or `[step N]` prefixes;
   use the logger's level and context fields.
 - `print` only for CLI output the end user reads (`--help`, visualization, `__main__` demo).
   Runtime info — even debug — goes through the logger.
-- Distributed: guard rank-zero via logger config or a `RankedLogger`-style adapter, not
-  scattered `if is_main:`. (Training loops keep theirs; don't spread the pattern.)
-- f-string vs `%-style`: pick one per repo. loguru → f-strings idiomatic; stdlib hot path →
-  `logger.info("Loading: %s", path)`.
+- Prefer `%-style` for hot-path log calls so formatting is skipped when the level is
+  disabled: `logger.info("Loading: %s", path)`.
 
-### CONFIG & MAGIC VALUES
+## CONFIG & MAGIC VALUES
 
 - No hardcoded URLs, absolute paths, or hostnames. Required deployment values must
   come from validated configuration, without embedded machine-specific defaults.
@@ -157,27 +160,20 @@ speculative generality.
 - Define a constant used by only one module in that module; do not create a
   cross-file import solely for it.
 
-### IMPORTS
+## IMPORTS
 
 - Group: stdlib / third-party / local, blank-line separated, alphabetical within group.
-- No `sys.path.insert` hacks. Use package imports, PYTHONPATH, or
-  `pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)`
-  in entry-point modules only. Use one setup mechanism per repo.
+- Manage import paths consistently at the project level. Don’t patch sys.path ad hoc in individual files.
 - No function-local imports except documented circular-dependency breaks. Put
   type-only cycle-breaking imports under `if TYPE_CHECKING:` with quoted annotations.
 - Import from the defining module using the full package path, such as
   `from xxx.yy.zzz import kkk`, rather than through `__init__.py`. Keep package
   re-exports minimal and define an explicit `__all__`; no wildcard imports.
 
-### TOOLING
+## TOOLING
 
 - This repository already configures linting, formatting, and other checks in
   [.pre-commit-config.yaml](../.pre-commit-config.yaml). Run
   `pre-commit run --all-files` before completing a change.
 - Test actual failure contracts and supported fallback paths;
   do not add tests solely to preserve speculative recovery scaffolding.
-
-### TRAINING
-
-Split training code into `train` and `trainer` scripts. Encapsulate training-related
-functions in `trainer`; `train` should only call the trainer to run the training loop.
