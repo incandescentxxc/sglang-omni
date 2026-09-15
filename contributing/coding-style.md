@@ -48,8 +48,8 @@ speculative generality.
 ### NAMING
 
 - Classes PascalCase; functions/variables snake_case; constants UPPER_SNAKE.
-  Use ordinary names for module-level functions, classes, methods, and attributes;
-  reserve a leading underscore for functions nested inside another function.
+  Use a leading underscore only for private functions and variables. Public
+  functions and variables must not have a leading underscore.
   Preserve language-defined special methods such as `__init__`.
 - Names say what, not how: `load_checkpoint` not `do_thing`; `num_codebooks` not `n`.
   Single letters only for loop indices (`i`,`j`) or math (`x`,`y`,`t`).
