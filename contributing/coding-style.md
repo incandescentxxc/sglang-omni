@@ -85,7 +85,7 @@ speculative generality.
   Don't hand-roll validators pydantic gives free.
 - Don't mix the two for one concept. Pick per role, not per mood.
 
-### STRUCTURE
+### FILE STRUCTURE
 
 - File > ~400 lines → extract a module. But a 30-line file holding one `_helper` called once
   is also wrong — merge it. Related functions belong together; one concern per file
@@ -174,9 +174,8 @@ speculative generality.
 - This repository already configures linting, formatting, and other checks in
   [.pre-commit-config.yaml](../.pre-commit-config.yaml). Run
   `pre-commit run --all-files` before completing a change.
-- New logic gets a test. Test actual failure contracts and supported fallback paths;
+- Test actual failure contracts and supported fallback paths;
   do not add tests solely to preserve speculative recovery scaffolding.
-- Before completing a change, review it against the rules in this guide.
 
 ### TRAINING
 
