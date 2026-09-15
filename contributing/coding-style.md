@@ -113,10 +113,9 @@ speculative generality.
     errors) is DEBT, not safety. Trust your invariants; let failures surface as stack traces.
   - Review: every try/except and defensive `if` must answer "what breaks if I delete this?"
     If the answer is "nothing, it was for debugging" — delete it.
-- Let CUDA graph replay failures propagate. Do not clear all captured graphs on a
-  speculative failure or silently fall back to eager execution after capture fails.
-  An unsupported capture shape may return `None` for the caller's documented fallback;
-  distinguish that expected path from an execution failure.
+- Do not wrap large blocks in `try/except` to guard against speculative, extremely
+  unlikely failures. Handle errors that realistically occur on the main execution
+  path; let unexpected failures surface.
 - Do not turn model execution failures into fabricated outputs such as
   `torch.zeros_like(tokens)`. When the model contract guarantees a tensor, use
   `output = model(tokens)` directly; remove impossible `None` checks and redundant
