@@ -38,6 +38,7 @@ speculative generality.
   what a code block does or how it does it — the code already shows that. But only document
   the "why" when specific codes are hard to understand without the context of the comments.
   Avoid verbose "why" rationale in comments.
+- Preserve license/copyright notices and concise upstream attribution.
 - Sign non-obvious/note comments with the author's name: `# note (name): ...`.
 - No backticks in Python comments.
 - NO process markers: no ★, `# P1`, `# [FIX]`, `# TODO` without a ticket, `# === SECTION ===`
@@ -164,11 +165,15 @@ speculative generality.
 
 - Group: stdlib / third-party / local, blank-line separated, alphabetical within group.
 - Manage import paths consistently at the project level. Don’t patch sys.path ad hoc in individual files.
-- No function-local imports except documented circular-dependency breaks. Put
-  type-only cycle-breaking imports under `if TYPE_CHECKING:` with quoted annotations.
-- Import from the defining module using the full package path, such as
-  `from xxx.yy.zzz import kkk`, rather than through `__init__.py`. Keep package
-  re-exports minimal and define an explicit `__all__`; no wildcard imports.
+- Prefer module-level imports; allow function-local imports for optional
+  dependencies, necessary initialization ordering, or documented
+  circular-dependency breaks. Put type-only cycle-breaking imports under
+  `if TYPE_CHECKING:` with quoted annotations.
+- For repository-internal imports, import from the defining module using the full
+  package path, such as `from xxx.yy.zzz import kkk`, rather than through
+  `__init__.py`. Keep package re-exports minimal and define an explicit
+  `__all__`; no wildcard imports. For third-party libraries, prefer their
+  documented public import paths (e.g. `from pydantic import BaseModel`).
 
 ## TOOLING
 
