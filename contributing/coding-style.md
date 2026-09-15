@@ -2,7 +2,8 @@
 
 This document describes the coding style for human contributors and AI agents.
 Sources: the [style prompt and do/don't examples](https://github.com/zhaochenyang20/sglang-diffusion-routing/issues/32#issuecomment-5651721937)
-and [additional anti-pattern examples](https://github.com/zhaochenyang20/sglang-diffusion-routing/issues/32#issuecomment-5650093336).
+and [additional anti-pattern examples](https://github.com/zhaochenyang20/sglang-diffusion-routing/issues/32#issuecomment-5650093336),
+including [discarded parameters](https://github.com/zhaochenyang20/sglang-diffusion-routing/issues/32#issuecomment-5673011724).
 
 ### Principles
 
@@ -69,6 +70,11 @@ twice right now AND genuinely clarifies the call site. Avoid speculative general
   `field(default_factory=list)`.
 - Use concrete model and decoder types, not `Any` to bypass checking. Type resource
   handles precisely; for example, a graph-pool handle is `tuple[int, int] | None`.
+- Do not accept a parameter only to immediately delete it to silence type or lint
+  checks, such as starting a function with `del request_id`. Remove unnecessary
+  parameters and update callers. If an established interface requires an unused
+  parameter, preserve the contract and make that constraint explicit rather than
+  pretending the parameter is used.
 
 ### DATA STRUCTURES
 
