@@ -25,9 +25,9 @@ speculative generality.
   three 20-line `_step_one/_two/_three` called once each.
 - Don't add interfaces/base classes/registries/plugin systems before a second concrete
   implementation exists. Two cases first, then abstract.
-- Reuse alone is not enough to justify a trivial helper: inline a two-line frame
-  alignment or device/dtype accessor used only once or twice when it adds indirection.
-  A nested callback scoped to a factory or graph capture can stay local.
+- Reuse alone is not enough to justify a trivial helper: inline short operations
+  used only once or twice when extraction adds indirection without clarity.
+  Keep nested callbacks local when their scope or captured state requires it.
 
 ### LANGUAGE & COMMENTS
 
@@ -53,10 +53,9 @@ speculative generality.
   Preserve language-defined special methods such as `__init__`.
 - Names say what, not how: `load_checkpoint` not `do_thing`; `num_codebooks` not `n`.
   Single letters only for loop indices (`i`,`j`) or math (`x`,`y`,`t`).
-- In model interfaces, names must identify the physical quantity, tensor role, or
-  unit: `noisy_mel`, `token_condition`, `speaker_embedding`, `prompt_mel`,
-  `mel_frame`, and `autocast_dtype`, rather than `x`, `mu`, `spks`, `cond`,
-  `frames`, or `compute_dtype`. Short mathematical names belong in local equations.
+- Interface names must identify the domain meaning, role, or unit of a value.
+  For example, `speaker_embedding` is clearer than `spks`. Choose names that fit
+  the actual operation; short mathematical names belong in local equations.
 
 ### TYPING & SIGNATURES
 
@@ -70,8 +69,8 @@ speculative generality.
 - Closed value sets → `Literal[...]` or `Enum`, not bare strings in comparisons.
 - No mutable function defaults: `def f(x=[])`/`= {}` are bugs. Use a `None` sentinel.
 - Use concrete types, including model and decoder types, rather than `any`/`Any`
-  or bare `dict`/`list`/`tuple`. Type resource handles precisely; for example, a
-  graph-pool handle is `tuple[int, int] | None`.
+  or bare `dict`/`list`/`tuple`. Annotate structured values and resource handles
+  according to their actual contracts, including element types and optionality.
 - Do not accept a parameter only to immediately delete it to silence type or lint
   checks, such as starting a function with `del request_id`. Remove unnecessary
   parameters and update callers. If an established interface requires an unused
@@ -107,24 +106,22 @@ speculative generality.
   log with a reason or re-raise.
 - Maturity progression — this matters:
   - Prototyping: try/except around the call you don't yet trust is fine.
-  - Mature: remove it. Replace `if x is not None and isinstance(x, ...)` chains with an
-    assert or a direct call. Defensive scaffolding (dummy forwards to align AllReduce,
-    logger enable/disable gymnastics, type-coercion loops, broad try/except swallowing
-    errors) is DEBT, not safety. Trust your invariants; let failures surface as stack traces.
+  - Mature: remove debugging-only guards and workarounds once the contract is
+    established. Keep necessary error handling, trust internal invariants, and
+    let unexpected failures surface as stack traces.
   - Review: every try/except and defensive `if` must answer "what breaks if I delete this?"
     If the answer is "nothing, it was for debugging" — delete it.
 - Do not wrap large blocks in `try/except` to guard against speculative, extremely
   unlikely failures. Handle errors that realistically occur on the main execution
   path; let unexpected failures surface.
-- Do not turn model execution failures into fabricated outputs such as
-  `torch.zeros_like(tokens)`. When the model contract guarantees a tensor, use
-  `output = model(tokens)` directly; remove impossible `None` checks and redundant
-  `isinstance`/`torch.tensor(output)` coercion. Validate genuinely untrusted results
-  at their boundary instead of weakening an established internal contract.
+- Do not turn execution failures into fabricated successful outputs. When a
+  function guarantees a return type, use its result directly instead of adding
+  impossible `None` checks or redundant type coercion. Validate genuinely untrusted
+  results at their boundary instead of weakening an established internal contract.
 - Access fields on known types directly. Do not use `getattr` defaults or `hasattr`
-  probes to hide missing required attributes. Read `flow.pre_lookahead_len` directly;
-  do not search multiple locations and substitute a default. Likewise, do not catch
-  `AttributeError` around `next(flow.parameters())` when parameters are guaranteed.
+  probes to hide missing required attributes, or catch attribute errors for
+  operations guaranteed by the interface. Missing required attributes should fail
+  visibly rather than trigger a search for alternate fields or fallback defaults.
 
 ### CONTROL FLOW
 
