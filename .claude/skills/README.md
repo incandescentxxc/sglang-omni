@@ -18,7 +18,6 @@ is imported by `sglang_omni/`, and no CI job runs them.
 | Skill | What it does | Who can run it |
 |---|---|---|
 | [`running-eval-suite`](running-eval-suite/SKILL.md) | Reruns every reference benchmark under `benchmarks/eval/` and rewrites the reference-table cells in `benchmark_*.py` for the hardware it detects. Commits locally, never pushes. | Any sglang-omni dev container with free GPUs and the `omni` venv. |
-| [`code-review`](code-review/SKILL.md) | Reviews a diff (working tree, commit range, or PR) against the repo's coding style guide, citing the specific rule and `file:line` for each violation. | Anyone; no GPU or special environment needed. |
 
 The evaluation skill expects the CI-equivalent environment (the `omni` venv,
 `HF_HOME` populated, `source .github/scripts/ci_env.sh`). Its precheck
