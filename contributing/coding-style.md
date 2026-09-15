@@ -10,21 +10,21 @@ including [discarded parameters](https://github.com/zhaochenyang20/sglang-diffus
 Write clean, professional, maintainable code. Match the surrounding codebase's conventions
 where they exist; where they don't, follow these rules.
 
-The overriding goal is simplicity: fewer, smaller files and fewer functions. Don't introduce
-a helper, wrapper, abstraction layer, or private `_xxx` function unless it is used at least
-twice right now AND genuinely clarifies the call site. Avoid speculative generality.
+The overriding goal is simplicity: fewer, smaller files and fewer functions. Avoid
+speculative generality.
 
 ### SIMPLICITY & NON-DUPLICATION
 
+- Introduce a helper, wrapper, or abstraction layer only when it is used at least
+  twice now and genuinely clarifies the call site.
 - Don't reinvent what stdlib or an already-imported dep provides (`itertools`, `functools`,
   `collections`, `pathlib`, `dataclasses`, `pydantic`, `torch.nn.functional`). A 3-line
   wrapper around `lru_cache` is noise.
-- Don't pre-extract `_helper`/`_impl` for "cleaner main flow" unless reused for more than twice or too long to read in one screen. A 60-line top-to-bottom function beats three 20-line `_step_one/_two/_three` called once each.
+- Don't pre-extract `_helper`/`_impl` for "cleaner main flow" unless reused more than
+  twice or too long to read in one screen. A 60-line top-to-bottom function beats
+  three 20-line `_step_one/_two/_three` called once each.
 - Don't add interfaces/base classes/registries/plugin systems before a second concrete
   implementation exists. Two cases first, then abstract.
-- Don't stack config dataclass + yaml loader + validator + CLI override when argparse + dict
-  would do. Match the repo's existing mechanism; if none, pick the lightest that fits.
-- One concern per file ≠ one function per file. Related functions cohabit fine.
 - Reuse alone is not enough to justify a trivial helper: inline a two-line frame
   alignment or device/dtype accessor used only once or twice when it adds indirection.
   A nested callback scoped to a factory or graph capture can stay local.
@@ -35,11 +35,14 @@ twice right now AND genuinely clarifies the call site. Avoid speculative general
   strings go through i18n — not this rule's concern.) If the repo is non-English, match it.
 - Comments sparse, one-line, only for the genuinely non-obvious. Restating code is noise.
 - NO process markers: no ★, `# P1`, `# [FIX]`, `# TODO` without a ticket, `# === SECTION ===`
-  banners, manual log prefixes like `[Info]`/`[step N]` (the level field already says it).
+  banners.
 - NO provenance leakage: never name other repos/upstream/"the closed source" in source.
 - NO verbose rationale in comments — the "why" lives in design docs / commits / PRs.
 - Docstrings: Google-style, 1-3 lines. Args/Returns only when non-obvious. One short module
   docstring per file.
+- Do not add opening comment blocks or lengthy explanations after class definitions.
+  Use the short module docstring and brief explanations where needed.
+- A long-term workaround gets a one-line comment naming the constraint.
 - `# noqa: <code>` allowed with a reason; bare `# noqa` is not.
 
 ### NAMING
@@ -62,14 +65,13 @@ twice right now AND genuinely clarifies the call site. Avoid speculative general
 - ONE typing style per repo. Don't mix `Optional[X]`/`Union[X,Y]` with `X | Y`. Modern
   preferred; if the repo uses `Optional`, match it.
 - Either `requires-python >= 3.10` (native `X | Y`) or `from __future__ import annotations`.
-  Don't use `Optional` to work around forward refs — use string quotes (`"ModelConfig"`) or
-  `TYPE_CHECKING`.
+  Don't use `Optional` to work around forward refs — use quoted annotations
+  (`"ModelConfig"`). Type-only imports are covered in IMPORTS.
 - Closed value sets → `Literal[...]` or `Enum`, not bare strings in comparisons.
-- No `any`/`Any` annotation. No bare `dict`/`list`/`tuple`. No `tokenizer: any`.
-- No mutable defaults: `def f(x=[])`/`= {}` are bugs. Use `None` sentinel or
-  `field(default_factory=list)`.
-- Use concrete model and decoder types, not `Any` to bypass checking. Type resource
-  handles precisely; for example, a graph-pool handle is `tuple[int, int] | None`.
+- No mutable function defaults: `def f(x=[])`/`= {}` are bugs. Use a `None` sentinel.
+- Use concrete types, including model and decoder types, rather than `any`/`Any`
+  or bare `dict`/`list`/`tuple`. Type resource handles precisely; for example, a
+  graph-pool handle is `tuple[int, int] | None`.
 - Do not accept a parameter only to immediately delete it to silence type or lint
   checks, such as starting a function with `del request_id`. Remove unnecessary
   parameters and update callers. If an established interface requires an unused
@@ -87,17 +89,13 @@ twice right now AND genuinely clarifies the call site. Avoid speculative general
 ### STRUCTURE
 
 - File > ~400 lines → extract a module. But a 30-line file holding one `_helper` called once
-  is also wrong — merge it.
-- No `sys.path.insert` hacks. Use package imports, PYTHONPATH, or
-  `pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)`. One per repo.
-- No function-local imports except documented circular-dependency breaks. Prefer
-  `if TYPE_CHECKING:` for type-only cycle-breaking imports.
+  is also wrong — merge it. Related functions belong together; one concern per file
+  does not mean one function per file.
 - One entry-point mechanism per repo (hydra/argparse/fire/`[project.scripts]`). `if __name__
   == "__main__"` only in entry-point modules, never library modules.
 - Module-level side effects (env mutation, global state, `setup_root`, resolver registration)
   only in entry-point modules. Library imports must be side-effect-free.
-- `__init__.py`: explicit `__all__`, no `from .x import *`, minimal re-exports.
-- No dead code: unreachable branches, unused params, commented-out blocks, stale TODOs,
+- No dead code: unreachable branches, commented-out blocks, stale TODOs,
   "kept for later" stubs.
 
 ### ERROR HANDLING & MATURITY
@@ -115,13 +113,10 @@ twice right now AND genuinely clarifies the call site. Avoid speculative general
     errors) is DEBT, not safety. Trust your invariants; let failures surface as stack traces.
   - Review: every try/except and defensive `if` must answer "what breaks if I delete this?"
     If the answer is "nothing, it was for debugging" — delete it.
-- A long-term workaround gets a one-line comment naming the constraint, not a ten-line block.
 - Let CUDA graph replay failures propagate. Do not clear all captured graphs on a
   speculative failure or silently fall back to eager execution after capture fails.
   An unsupported capture shape may return `None` for the caller's documented fallback;
   distinguish that expected path from an execution failure.
-- Do not add tests solely to preserve speculative recovery scaffolding. Test actual
-  failure contracts and supported fallback paths.
 - Do not turn model execution failures into fabricated outputs such as
   `torch.zeros_like(tokens)`. When the model contract guarantees a tensor, use
   `output = model(tokens)` directly; remove impossible `None` checks and redundant
@@ -143,7 +138,8 @@ twice right now AND genuinely clarifies the call site. Avoid speculative general
 
 - ONE logging library per repo. Don't mix stdlib `logging` and `loguru`. Configure once.
 - One logger per module: `logging.getLogger(__name__)` or `from loguru import logger`.
-- Terse English, no manual prefixes (level field says INFO/WARNING).
+- Keep messages terse. No manual `[Info]`, `[Warn]`, or `[step N]` prefixes;
+  use the logger's level and context fields.
 - `print` only for CLI output the end user reads (`--help`, visualization, `__main__` demo).
   Runtime info — even debug — goes through the logger.
 - Distributed: guard rank-zero via logger config or a `RankedLogger`-style adapter, not
@@ -153,55 +149,40 @@ twice right now AND genuinely clarifies the call site. Avoid speculative general
 
 ### CONFIG & MAGIC VALUES
 
-- No hardcoded URLs, absolute paths, hostnames, or unexplained magic numbers in source.
-  Config file, env var, or named constant at module top.
+- No hardcoded URLs, absolute paths, or hostnames. Required deployment values must
+  come from validated configuration, without embedded machine-specific defaults.
+- Replace unexplained magic numbers with named constants at module scope.
 - Empirical constants named + provenance comment: `DECODE_TOKS_PER_SEC = 6.7  # measured on H20`.
-- One config mechanism per repo (Hydra / argparse+yaml / dataclass / env). Don't mix. Don't
-  ship a yaml that's "documentation only" and never loaded.
+- Use one config mechanism, following the repository's existing choice (Hydra /
+  argparse+yaml / dataclass / env). If none exists, pick the lightest that fits.
+  Do not stack config dataclasses,
+  YAML loaders, validators, and CLI overrides when argparse + dict would do.
+- Do not ship a YAML file that is "documentation only" and never loaded.
 - Define a constant used by only one module in that module; do not create a
   cross-file import solely for it.
-- Required deployment values must come from validated configuration. Use
-  `config["judge_url"]` and `config["tmp_dir"]`, not a `config.get(...)` fallback to
-  an embedded service URL or an absolute directory from a developer's machine.
 
 ### IMPORTS
 
 - Group: stdlib / third-party / local, blank-line separated, alphabetical within group.
-- No sys.path hacks (see STRUCTURE). No function-local imports (see STRUCTURE).
-- Type-only cycle-breaking imports under `if TYPE_CHECKING:` with string quotes at use site.
-- Do not use __init__.py for imports, we import every file as package from root path like from xxx.yy.zzz import kkk.
+- No `sys.path.insert` hacks. Use package imports, PYTHONPATH, or
+  `pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)`
+  in entry-point modules only. Use one setup mechanism per repo.
+- No function-local imports except documented circular-dependency breaks. Put
+  type-only cycle-breaking imports under `if TYPE_CHECKING:` with quoted annotations.
+- Import from the defining module using the full package path, such as
+  `from xxx.yy.zzz import kkk`, rather than through `__init__.py`. Keep package
+  re-exports minimal and define an explicit `__all__`; no wildcard imports.
 
 ### TOOLING
 
 - This repository already configures linting, formatting, and other checks in
   [.pre-commit-config.yaml](../.pre-commit-config.yaml). Run
   `pre-commit run --all-files` before completing a change.
-- New logic gets a test. A repo with zero tests is a smell; don't make it worse.
-
-### WHEN REVIEWING YOUR OWN OUTPUT
-
-- Single-call `_helper`/`_impl`? Inline it. <30-line single-helper file? Merge it.
-- Interface/base class/registry with one implementation? Delete it until a second exists.
-- try/except or `if isinstance / if x is not None` chain protecting no real failure mode?
-  Delete it.
-- Non-English text, ★ / `# P1` / `# [FIX]` marker, banner, manual log prefix? Flag it.
-- File > ~400 lines that could split? Flag it.
-- Hardcoded paths/URLs, sys.path hacks, function-local imports, bare excepts, untyped
-  signatures, mixed `Optional`+`X|Y`, mutable defaults, comments restating code? Flag it.
-- Every comment: would a domain reader still need it? No → delete.
-- Every standalone helper: called more than once and clarifies the call site?
-  No → inline. Keep genuinely local nested callbacks where they are needed.
-- Required fields accessed through `getattr`/`hasattr`? Use direct attribute access.
-- A constant used by only one module but defined elsewhere? Move it to that module.
-- Incomplete branches, late validation, or deeply nested checks?
-  Make branches complete, validate early, and flatten the control flow.
+- New logic gets a test. Test actual failure contracts and supported fallback paths;
+  do not add tests solely to preserve speculative recovery scaffolding.
+- Before completing a change, review it against the rules in this guide.
 
 ### TRAINING
 
 Split training code into `train` and `trainer` scripts. Encapsulate training-related
 functions in `trainer`; `train` should only call the trainer to run the training loop.
-
-### COMMENTS
-
-Do not add comments at the beginning of files. Avoid lengthy comments after class
-definitions explaining every element; use brief explanations where needed.
